@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="light">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BNF-лаборатория — Тема 4, занятие 1</title>
+  <meta name="description" content="Интерактивный редактор БНФ-грамматики мини-языка с лексером: описал грамматику — сразу видно, как текст раскладывается на лексемы." />
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ctext y='.9em' font-size='90'%3E%F0%9F%93%90%3C/text%3E%3C/svg%3E" />
+  <script>
+    // Тема до первой отрисовки, чтобы не мигать.
+    try {
+      const saved = JSON.parse(localStorage.getItem('bnflab:v1') || '{}');
+      if (saved.theme) document.documentElement.dataset.theme = saved.theme;
+    } catch (e) {}
+  </script>
+</head>
+<body>
+  <div id="app">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">📐</span>
+        <span class="brand-name">BNF-лаборатория
+          <span class="brand-sub">Тема 4 · мини-язык и его компилятор</span>
+        </span>
+      </div>
+      <nav class="tabs" aria-label="Занятия">
+        <button class="tab active" data-tab="1"><b>1</b><span>Грамматика и лексер</span></button>
+        <button class="tab soon" data-tab="2"><b>2</b><span>Парсер и AST</span></button>
+        <button class="tab soon" data-tab="3"><b>3</b><span>Bison и конфликты</span></button>
+      </nav>
+      <button id="theme-toggle" class="theme-toggle" title="Светлая/тёмная тема">🌙</button>
+    </header>
+
+    <div class="pipeline" id="pipeline">
+      <span class="step past">текст</span><i>→</i>
+      <span class="step active">лексер</span><i>→</i>
+      <span class="step past">токены</span><i>→</i>
+      <span class="step future">парсер</span><i>→</i>
+      <span class="step future">AST</span><i>→</i>
+      <span class="step future">байты</span><i>→</i>
+      <span class="step future">эмулятор</span>
+    </div>
+
+    <main>
+      <!-- ================================================================ часть 1 -->
+      <section id="view-1" class="view">
+        <div class="grid">
+          <section class="card" id="grammar-card">
+            <div class="card-head">
+              <h2>Грамматика мини-языка · БНФ</h2>
+              <select id="preset-select" title="Примеры грамматики"></select>
+            </div>
+            <p class="hint">
+              <code>&lt;нетерминал&gt; ::= альтернатива | альтернатива</code> ·
+              литералы — <code>"в кавычках"</code>, классы лексем — <code>ПРОПИСНЫМИ</code>
+              (<code>ИДЕНТ</code>, <code>ЧИСЛО</code>) ·
+              <code>[необязательно]</code>, <code>(груп|па)</code>, <code>*</code> <code>+</code> <code>?</code>,
+              <code>ε</code> — пусто · комментарий — с <code>#</code>
+            </p>
+            <div id="g-editor" class="editor tall"></div>
+            <div id="grammar-stats" class="chips-row"></div>
+            <div class="panel">
+              <h3>Проверка грамматики</h3>
+              <div id="diagnostics"></div>
+            </div>
+          </section>
+
+          <section class="card" id="program-card">
+            <div class="card-head">
+              <h2>Программа на мини-языке</h2>
+              <div id="chips" class="chips-row"></div>
+            </div>
+            <div id="p-editor" class="editor short"></div>
+            <div class="options-row">
+              <label title="Число и идентификатор слитно (12abc) — ошибка лексера. Снимите галку, чтобы увидеть альтернативное решение: два токена.">
+                <input type="checkbox" id="opt-strict" checked />
+                строгие числа <span class="muted">(12abc — ошибка)</span>
+              </label>
+              <label title="Домашнее задание занятия 1: комментарии // и /* */">
+                <input type="checkbox" id="opt-comments" />
+                комментарии <span class="muted">// и /* */ — домашка</span>
+              </label>
+            </div>
+            <div class="panel">
+              <h3>Лексемы <span id="token-count" class="count"></span></h3>
+              <div id="lexer-errors"></div>
+              <div id="coverage"></div>
+              <div id="token-legend" class="legend-row"></div>
+              <div class="table-wrap">
+                <table id="token-table">
+                  <thead>
+                    <tr><th>№</th><th>Лексема</th><th>Тип</th><th>Строка:столбец</th><th>Комментарий лексера</th></tr>
+                  </thead>
+                  <tbody></tbody>
+                </table>
+              </div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ================================================================ часть 2 (роадмап) -->
+      <section id="view-2" class="view" hidden>
+        <div class="grid single">
+          <section class="card roadmap">
+            <div class="card-head">
+              <h2>Часть 2. Парсер методом рекурсивного спуска и генератор кода</h2>
+              <span class="badge-soon">в разработке</span>
+            </div>
+            <p class="lead">
+              По методическим указаниям к занятию 2: довести конвейер до конца —
+              программа на мини-языке компилируется и выполняется на собственном
+              эмуляторе студента. Здесь сходятся Тема 1 (машина), Тема 2 (декомпозиция) и Тема 4.
+            </p>
+            <div class="features">
+              <div class="feature"><b>Правило → функция.</b> Соответствие механическое:
+                <code>&lt;выражение&gt; ::= &lt;слагаемое&gt; | &lt;выражение&gt; "+" &lt;слагаемое&gt;</code>
+                превращается в <code>разобрать_выражение()</code> почти построчно.</div>
+              <div class="feature"><b>Левая рекурсия → цикл.</b> Анализатор из части 1 уже подсвечивает
+                левую рекурсию — в парсере она станет циклом, дающим левую ассоциативность.</div>
+              <div class="feature"><b>Живой AST.</b> Дерево для <code>x = 2 + 3 * (4 - 1)</code>:
+                умножение глубже сложения, скобок в дереве нет — они уже сделали своё дело.</div>
+              <div class="feature"><b>Генератор кода.</b> Обход в постфиксном порядке →
+                <code>LDA / ADD / STA</code>; <code>PUSH/POP</code> для вложенных выражений;
+                адрес вперёд с обратной правкой для <code>if</code> и <code>while</code>.</div>
+              <div class="feature"><b>Таблица имён и запуск.</b> Переменные — в области данных,
+                не пересекающейся с кодом; мнемоники рядом с байтами; эталонные тесты — 5–6 штук одним запуском.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- ================================================================ часть 3 (роадмап) -->
+      <section id="view-3" class="view" hidden>
+        <div class="grid single">
+          <section class="card roadmap">
+            <div class="card-head">
+              <h2>Часть 3. Рукописный парсер против генератора. Конфликты и стоимость изменения</h2>
+              <span class="badge-soon">в планах</span>
+            </div>
+            <p class="lead">
+              По методическим указаниям к занятию 3: основание для инженерного выбора —
+              не чужое мнение, а собственный замер. И конфликт сдвиг/свёртка перестаёт
+              быть словами с лекции.
+            </p>
+            <div class="features">
+              <div class="feature"><b>Экспорт в .y.</b>Grammatика из части 1 перегенерируется
+                в файл bison — левая рекурсия записывается напрямую, без переписывания в цикл.</div>
+              <div class="feature"><b>Node-бэкенд.</b> Компиляция <code>.y</code> через bison —
+                на отдельном сервере: фронтенд остаётся статическим, yacc-утилиты живут там, где им место.</div>
+              <div class="feature"><b>Конфликт сдвиг/свёртка вживую.</b> Тот же «висячий else»,
+                который анализатор части 1 уже помечает, bison покажет как реальный конфликт — с разбором сообщения.</div>
+              <div class="feature"><b>Бланк замера.</b> Строк кода, время реализации, время внесения
+                изменения в язык, число затронутых мест — в рукописном и bison-вариантах.</div>
+              <div class="feature"><b>Вывод.</b> Малый и стабильный язык — рукописный спуск дешевле;
+                большой и меняющийся — генератор окупается.</div>
+            </div>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        Учебный конвейер: текст → лексер → токены → парсер → AST → байты → эмулятор.
+        Сейчас работает первая ступень — лексер не знает про грамматику и проверяет только
+        форму лексем: «) ) + = while» для него корректный вход.
+      </p>
+      <p class="muted">Тема 4 · практическое занятие 1 · приоритет операций задаётся структурой правил, а не отдельным механизмом</p>
+    </footer>
+  </div>
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
