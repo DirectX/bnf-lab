@@ -59,6 +59,10 @@ function tokenize(text, err) {
       while (j < text.length && text[j] !== '"' && text[j] !== '\n') j++;
       if (text[j] !== '"') {
         err('незакрытый литерал — не найдена закрывающая кавычка «"»', line, col);
+        // обязательно продвинуться: иначе цикл повторяет эту же ошибку до бесконечности.
+        // Граница — конец строки (литералы через строку не пишутся).
+        const upto = j - i;
+        col += upto; i = j;
         continue;
       }
       const value = text.slice(i + 1, j);
