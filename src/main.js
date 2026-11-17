@@ -8,6 +8,9 @@ import { rdParse, walkRules, deepestAt } from './parser/rd.js';
 import { pseudocode } from './parser/pseudocode.js';
 import { generate } from './cpu8/codegen.js';
 import { runCPU8 } from './cpu8/cpu8.js';
+import { buildSLR } from './lr/slr.js';
+import { runSLR } from './lr/run.js';
+import { exportY } from './lr/exporty.js';
 import { createEditor } from './ui/editor.js';
 import { highlightBnf, highlightProgram } from './ui/highlighters.js';
 import { GRAMMAR_PRESETS, PROGRAM_CHIPS } from './data/presets.js';
@@ -25,6 +28,8 @@ const state = {
   comments: false,
   tab: 1,
   theme: 'light',
+  lrPolicy: 'shift',
+  measure: {},
 };
 try {
   Object.assign(state, JSON.parse(localStorage.getItem(STORAGE_KEY) || '{}'));
@@ -164,6 +169,103 @@ function renderTokens(info) {
     </tr>`).join('');
 }
 
+// ---------------------------------------------------------------- часть 3: снизу вверх (SLR)
+
+let lrState = null;
+
+function renderLRTab() {
+  const summary = $('#lr-summary');
+  const confEl = $('#lr-conflicts');
+  const statesEl = $('#lr-states');
+  const statusEl = $('#lr-run-status');
+  const traceEl = $('#lr-trace');
+  const compareEl = $('#lr-compare');
+  const yEl = $('#y-out');
+  lrState = null;
+  summary.textContent = '';
+  confEl.innerHTML = '';
+  statesEl.innerHTML = '';
+  statusEl.innerHTML = '';
+  traceEl.innerHTML = '';
+  compareEl.innerHTML = '';
+  yEl.innerHTML = '';
+  $('#lr-steps').textContent = '';
+
+  if (!lastAnalysis || !lastAnalysis.start) {
+    confEl.innerHTML = '<div class="muted small">Нет грамматики — добавьте правила в части 1.</div>';
+    return;
+  }
+
+  const sl = buildSLR(lastAnalysis.core, lastAnalysis.start);
+  const srCount = sl.conflicts.filter((c) => c.type === 'shift/reduce').length;
+  const rrCount = sl.conflicts.filter((c) => c.type === 'reduce/reduce').length;
+  summary.textContent = `${sl.states.length} состояний · ${sl.conflicts.length} конфликтов (сдвиг/свёртка: ${srCount}, свёртка/свёртка: ${rrCount})`;
+
+  if (sl.conflicts.length === 0) {
+    confEl.innerHTML = '<div class="ok-box">✓ Конфликтов нет: грамматика однозначна для SLR(1). Инструменту нечего вам предлагать выбрать.</div>';
+  } else {
+    confEl.innerHTML = sl.conflicts.map((c) => `
+      <div class="conflict sev-${c.type === 'shift/reduce' ? 'warn' : 'error'}">
+        <div class="conf-head"><b>${c.type}</b> · состояние ${c.state} · lookahead <code>${escapeHtml(c.lookaheadText)}</code></div>
+        <div class="conf-body">
+          ${c.items.map((i) => `<div class="conf-item"><span class="role">${i.role}</span><code>${escapeHtml(i.text)}</code>${i.to !== undefined ? ` → состояние ${i.to}` : ''}</div>`).join('')}
+          <div class="conf-ex">пример: разобрав <code>${escapeHtml(c.sentential)}</code> и увидев <code>${escapeHtml(c.lookaheadText)}</code>, автомат не знает, что делать. ${escapeHtml(c.note)}</div>
+        </div>
+      </div>`).join('');
+  }
+
+  statesEl.innerHTML = sl.states.map((s) => {
+    const hasConf = sl.conflicts.some((c) => c.state === s.id);
+    return `<div class="st${hasConf ? ' st-conf' : ''}"><div class="st-head" data-st="${s.id}">состояние ${s.id}${hasConf ? ' ⚠' : ''}</div><div class="st-items">${s.items.map((i) => `<code>${escapeHtml(i)}</code>`).join('')}</div></div>`;
+  }).join('');
+  statesEl.querySelectorAll('.st-head').forEach((h) => h.addEventListener('click', () => h.parentElement.classList.toggle('open')));
+
+  // ---- прогон
+  const policy = state.lrPolicy;
+  const res = runSLR(sl, curTokens, { policy });
+  lrState = { sl, res };
+  $('#lr-steps').textContent = res.steps ? `— ${res.steps} ходов` : '';
+  if (res.errors.length) {
+    statusEl.innerHTML = res.errors.map((e) => `<div class="err-box"><b>✕</b> ${escapeHtml(e.message)}</div>`).join('')
+      + (policy === 'reduce' && sl.conflicts.length
+        ? '<div class="warn-box">⚠ политика «свёртка» закрыла <i>все</i> вложенные конструкции — else остался ни с чем. Вот почему конфликт так просто не выключают: разрешение — это приоритет <code>%prec</code> (первый способ) или переписывание грамматики (второй, честный), а не глобальная галка.</div>'
+        : '');
+  } else if (res.accepted) {
+    const conflictRows = res.trace.filter((t) => t.kind === 'conflict').length;
+    statusEl.innerHTML = `<div class="ok-box">✓ Принято снизу вверх${conflictRows ? ` · в ${conflictRows} местах конфликт разрешён политикой «${policy === 'shift' ? 'сдвиг' : 'свёртка'}»` : ''}</div>`;
+  } else {
+    statusEl.innerHTML = '<div class="warn-box">⚠ разбор не завершён принятием</div>';
+  }
+
+  const KIND = { shift: ['⇥', 'k-shift'], reduce: ['⇤', 'k-reduce'], accept: ['✓', 'k-accept'], conflict: ['⚠', 'k-conflict'] };
+  traceEl.innerHTML = res.trace.slice(0, 400).map((t) => {
+    const [ic, cls] = KIND[t.kind] || ['', ''];
+    return `<div class="lr-row ${cls}"><span class="lr-n">${t.n}</span><span class="lr-ic">${ic}</span><span class="lr-d">${escapeHtml(t.detail)}</span><span class="lr-st">стек: ${t.stack}${t.input ? ` · вход: ${escapeHtml(t.input)}` : ''}</span></div>`;
+  }).join('') + (res.trace.length > 400 ? `<div class="muted small">… трасса обрезана (${res.trace.length} строк)</div>` : '');
+
+  // ---- сравнение двух методов на текущей программе
+  if (curAst) {
+    const hand = { calls: 0, nodes: 0 };
+    walkRules(curAst, () => { hand.calls++; hand.nodes++; });
+    const reduces = res.trace.filter((t) => t.kind === 'reduce').length;
+    const shifts = res.trace.filter((t) => t.kind === 'shift').length;
+    compareEl.innerHTML = `
+      <table class="compare">
+        <tr><th></th><th>рекурсивный спуск<br><span class="muted">часть 2, сверху вниз</span></th><th>SLR снизу вверх<br><span class="muted">эта вкладка, как bison</span></th></tr>
+        <tr><td>ходов сделано</td><td>${hand.calls} вызовов функций</td><td>${shifts} сдвигов + ${reduces} свёрток</td></tr>
+        <tr><td>левая рекурсия</td><td>пришлось превратить в цикл</td><td>записывается напрямую</td></tr>
+        <tr><td>неоднозначность</td><td>${lastAnalysis.diagnostics.some((d) => /неоднознач|двусмыслен|висяч/.test(d.message)) ? 'решена <b>молча</b> — парсер просто сделал выбор' : 'не проявилась'}</td><td>${sl.conflicts.length ? `<b>${sl.conflicts.length} конфликтов заявлено явно</b> — выбор делает человек` : 'конфликтов нет'}</td></tr>
+        <tr><td>ошибка в тексте</td><td>сообщает строку, столбец и ожидаемую лексему</td><td>${res.errors.length ? `сообщает состояние и lookahead${res.errors[0].message.includes('строка') ? '' : ' — где именно строка, надо добавлять'}` : '—'}</td></tr>
+      </table>
+      <p class="hint muted small">Сравнение по одной программе: ${escapeHtml(state.source.trim().split('\n')[0])}${state.source.includes('\n') ? ' …' : ''}</p>`;
+  } else {
+    compareEl.innerHTML = '<div class="muted small">Нет AST из части 2 — сравнение появится после успешного разбора той же программы обоими методами.</div>';
+  }
+
+  // ---- экспорт .y
+  yEl.innerHTML = `<code>${escapeHtml(exportY(lastAnalysis.core, lastAnalysis.start, { conflicts: sl.conflicts.length }))}</code>`;
+}
+
 // ---------------------------------------------------------------- часть 2: парсер и AST
 
 const TK_CLS = { num: 'num', ident: 'ident', kw: 'kw', op: 'op', err: 'err' };
@@ -200,6 +302,7 @@ function renderParseTab() {
     $('#parse-trace').innerHTML = '';
     $('#parse-steps').textContent = '';
     renderGenerator();
+    renderLRTab();
     return;
   }
 
@@ -228,6 +331,7 @@ function renderParseTab() {
   renderTree(ast);
   renderTrace(trace);
   renderGenerator();
+  renderLRTab();
 }
 
 // ---------------------------------------------------------------- часть 2: генератор → TinyCPU-8
@@ -436,12 +540,59 @@ $('#opt-comments').checked = state.comments;
 $('#opt-strict').addEventListener('change', (e) => { state.strictNumbers = e.target.checked; save(); update(); });
 $('#opt-comments').addEventListener('change', (e) => { state.comments = e.target.checked; save(); update(); });
 
+// ---- вкладка 3: политика, копирование .y, бланк замера
+$('#lr-policy').value = state.lrPolicy;
+$('#lr-policy').addEventListener('change', (e) => { state.lrPolicy = e.target.value; save(); renderLRTab(); });
+
+$('#y-copy').addEventListener('click', async (e) => {
+  const text = $('#y-out').textContent;
+  const btn = e.currentTarget;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    const old = btn.textContent;
+    btn.textContent = '✓ Скопировано';
+    setTimeout(() => { btn.textContent = old; }, 1500);
+  } catch { prompt('Скопируйте вручную:', text); }
+});
+
+const MEASURE_KEYS = ['lines-hand', 'lines-gen', 'time-hand', 'time-gen', 'change-hand', 'change-gen', 'spots-hand', 'spots-gen'];
+for (const k of MEASURE_KEYS) {
+  const el = document.getElementById('m-' + k);
+  if (state.measure[k] != null) el.value = state.measure[k];
+  el.addEventListener('input', () => {
+    state.measure[k] = el.value === '' ? null : Number(el.value);
+    save();
+    renderVerdict();
+  });
+}
+function renderVerdict() {
+  const m = state.measure;
+  const el = $('#m-verdict');
+  const ch = m['change-hand']; const cg = m['change-gen'];
+  if (ch == null || cg == null || (ch === 0 && cg === 0)) { el.innerHTML = ''; return; }
+  if (ch === cg) { el.innerHTML = '<div class="verdict-box same">Изменение обошлось одинаково (' + ch + ' мин). Равенство — тоже результат: значит, язык был мал и стабилен, а правка касалась одного места.</div>'; return; }
+  const winner = ch < cg ? 'рукописный спуск' : 'генератор';
+  const ratio = cg === 0 || ch === 0 ? null : (Math.max(ch, cg) / Math.min(ch, cg)).toFixed(1);
+  el.innerHTML = `<div class="verdict-box">Быстрее изменился <b>${winner}</b>${ratio ? ` — в ${ratio} раза` : ''} (${Math.min(ch, cg)} против ${Math.max(ch, cg)} мин). ${
+    winner === 'генератор'
+      ? 'Грамматика в одном месте, инструмент сам проверяет её на противоречивость — признак большого и меняющегося языка.'
+      : 'Лишнего инструмента в сборке нет, диагностика под контролем — признак малого и стабильного языка.'
+  }</div>`;
+}
+renderVerdict();
+
 function showTab(n) {
   state.tab = n;
   document.querySelectorAll('.tab').forEach((b) => b.classList.toggle('active', Number(b.dataset.tab) === n));
   document.querySelectorAll('.view').forEach((v) => { v.hidden = true; });
   $(`#view-${n}`).hidden = false;
-  $('#pipeline').style.display = n === 1 ? '' : 'none';
+  // конвейер: какие ступени обслуживает текущая вкладка
+  const ranges = { 1: [1, 2], 2: [3, 6], 3: [3, 3] };
+  const [from, to] = ranges[n] || [1, 1];
+  document.querySelectorAll('#pipeline .step').forEach((s, i) => {
+    s.classList.toggle('active', i >= from && i <= to);
+  });
   const h = `#tab${n}`;
   if (location.hash !== h) history.replaceState(null, '', h);
   save();

@@ -371,5 +371,66 @@ tr.changed td { background: var(--accent-soft); }
 .vars-out { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .small { font-size: 13px; }
 
+/* ============================ часть 3: снизу вверх ============================ */
+#pipeline .step.active + i + .step.active { margin-left: -2px; }
+.lr-intro { margin-bottom: 16px; }
+.lr-grid { margin-top: 0; }
+.badge-part {
+  font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+  color: var(--info); background: var(--info-bg); border-radius: 999px; padding: 4px 11px; white-space: nowrap;
+}
+.lr-policy { display: inline-flex; align-items: center; gap: 7px; font-size: 12.5px; color: var(--muted); }
+
+.conflict { border-radius: 9px; padding: 9px 12px; margin-bottom: 8px; font-size: 13.5px; }
+.conflict.sev-warn { background: var(--warn-bg); }
+.conflict.sev-error { background: var(--err-bg); }
+.conf-head b { text-transform: uppercase; font-size: 12px; letter-spacing: 0.5px; }
+.conflict.sev-warn .conf-head b { color: var(--warn); }
+.conflict.sev-error .conf-head b { color: var(--err); }
+.conf-body { margin-top: 6px; }
+.conf-item { display: flex; gap: 8px; align-items: baseline; font-size: 13px; margin: 2px 0; }
+.conf-item .role { flex: 0 0 auto; font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); }
+.conf-item code { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 4px; padding: 0 5px; font-size: 12px; }
+.conf-ex { margin-top: 6px; font-size: 12.5px; color: var(--muted); }
+.conf-ex code { background: var(--panel); border: 1px solid var(--line-soft); border-radius: 4px; padding: 0 4px; }
+
+.lr-states { max-height: 330px; overflow: auto; display: flex; flex-direction: column; gap: 5px; }
+.st { border: 1px solid var(--line-soft); border-radius: 8px; padding: 5px 9px; background: var(--panel-2); }
+.st.st-conf { border-color: var(--warn); background: var(--warn-bg); }
+.st-head { font-size: 12px; font-weight: 700; color: var(--muted); cursor: pointer; }
+.st.st-conf .st-head { color: var(--warn); }
+.st-items { display: none; flex-direction: column; gap: 1px; margin-top: 4px; }
+.st.open .st-items { display: flex; }
+.st-items code { font-size: 12px; color: var(--ink); }
+
+.lr-trace { max-height: 380px; overflow: auto; font: 12px ui-monospace, Menlo, Consolas, monospace; }
+.lr-row { display: grid; grid-template-columns: 34px 16px 1fr; gap: 6px; padding: 2px 0; border-bottom: 1px solid var(--line-soft); align-items: baseline; }
+.lr-n { color: var(--muted); text-align: right; }
+.lr-ic { text-align: center; }
+.lr-d { color: var(--ink); }
+.lr-st { grid-column: 2 / -1; color: var(--muted); font-size: 10.5px; }
+.lr-row.k-shift .lr-ic { color: var(--info); }
+.lr-row.k-reduce .lr-ic { color: var(--ok); }
+.lr-row.k-accept { background: var(--ok-bg); }
+.lr-row.k-conflict { background: var(--warn-bg); }
+.lr-row.k-conflict .lr-ic { color: var(--warn); font-weight: 700; }
+
+table.compare { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
+table.compare th, table.compare td { border: 1px solid var(--line-soft); padding: 6px 9px; text-align: left; vertical-align: top; }
+table.compare th { background: var(--panel-2); font-weight: 600; }
+table.compare td:first-child { color: var(--muted); white-space: nowrap; }
+
+.yout { max-height: 420px; overflow: auto; }
+.yout code { white-space: pre; font-size: 12px; }
+
+table.measure { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+table.measure th, table.measure td { border: 1px solid var(--line-soft); padding: 5px 8px; text-align: left; }
+table.measure thead th { background: var(--panel-2); font-size: 12px; }
+table.measure td:first-child { color: var(--muted); }
+table.measure input { width: 74px; font: 13px ui-monospace, Menlo, Consolas, monospace; padding: 3px 6px; border: 1px solid var(--line); border-radius: 6px; background: var(--panel); color: var(--ink); }
+.verdict { margin-top: 10px; }
+.verdict-box { background: var(--accent-soft); border-left: 3px solid var(--accent); border-radius: 0 8px 8px 0; padding: 8px 12px; font-size: 13.5px; }
+.verdict-box.same { background: var(--info-bg); border-left-color: var(--info); }
+
 /* ============================ подвал ============================ */footer { border-top: 1px solid var(--line); margin-top: 26px; padding: 16px 18px 26px; text-align: center; font-size: 13px; color: var(--muted); }
 footer p { max-width: 900px; margin: 4px auto; }

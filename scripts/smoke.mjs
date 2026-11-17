@@ -7,6 +7,9 @@ import { rdParse } from '../src/parser/rd.js';
 import { pseudocode } from '../src/parser/pseudocode.js';
 import { generate } from '../src/cpu8/codegen.js';
 import { runCPU8 } from '../src/cpu8/cpu8.js';
+import { buildSLR } from '../src/lr/slr.js';
+import { runSLR } from '../src/lr/run.js';
+import { exportY } from '../src/lr/exporty.js';
 import { GRAMMAR_PRESETS } from '../src/data/presets.js';
 
 let passed = 0;
@@ -308,6 +311,68 @@ for (const [a, b, rel] of [[5, 2, '<='], [5, 5, '<='], [4, 5, '<'], [5, 5, '<'],
     return out;
   })(c.gen.listing);
   ok(re.join() === c.gen.bytes.join(), 'листинг заново ассемблируется в те же байты — формат tinycpu-web соблюдён');
+}
+
+
+// ---------------------------------------------------------------- SLR (часть 3)
+console.log('SLR(1) снизу вверх:');
+
+
+{
+  const d = GRAMMAR_PRESETS.find((p) => p.id === 'dangling');
+  const a = analyzeGrammar(parseGrammar(d.grammar));
+  const sl = buildSLR(a.core, a.start);
+  ok(sl.conflicts.length === 1 && sl.conflicts[0].type === 'shift/reduce' && sl.conflicts[0].lookaheadText === '"else"',
+    `пресет «висячий else»: ровно 1 конфликт сдвига/свёртки на "else" (получено ${sl.conflicts.length})`);
+  const l = lex(d.source, { keywords: new Set(a.info.keywords), puncts: new Set(a.info.puncts), strictNumbers: true });
+  const rs = runSLR(sl, l.tokens, { policy: 'shift' });
+  ok(rs.accepted, 'пресет «висячий else»: программа принимается политикой сдвига');
+  const rc = runSLR(sl, l.tokens, { policy: 'reduce' });
+  ok(!rc.accepted, 'пресет «висячий else»: слепая политика «свёртка» НЕ принимает программу — закрывает оба if; разрешение — не галка, а %prec или переписывание');
+}
+{
+  const f = GRAMMAR_PRESETS.find((p) => p.id === 'dangling_fixed');
+  const a = analyzeGrammar(parseGrammar(f.grammar));
+  const sl = buildSLR(a.core, a.start);
+  ok(sl.conflicts.length === 0 && sl.isSLR, 'пресет «переписан»: конфликтов 0 — чистый SLR(1)');
+  const l = lex(f.source, { keywords: new Set(a.info.keywords), puncts: new Set(a.info.puncts), strictNumbers: true });
+  ok(runSLR(sl, l.tokens).accepted, 'пресет «переписан»: программа принимается без политики');
+}
+{
+  const m = GRAMMAR_PRESETS.find((p) => p.id === 'mini');
+  const a = analyzeGrammar(parseGrammar(m.grammar));
+  const sl = buildSLR(a.core, a.start);
+  ok(sl.conflicts.length === 1 && sl.conflicts[0].lookaheadText === '"else"',
+    'миниязык: один конфликт — тот же висячий else, что предсказала эвристика части 1');
+  const l = lex(m.source, { keywords: new Set(a.info.keywords), puncts: new Set(a.info.puncts), strictNumbers: true });
+  ok(runSLR(sl, l.tokens, { policy: 'shift' }).accepted, 'миниязык: программа-пресет принимается снизу вверх');
+}
+{
+  const amb = GRAMMAR_PRESETS.find((p) => p.id === 'ambig');
+  const a = analyzeGrammar(parseGrammar(amb.grammar));
+  const sl = buildSLR(a.core, a.start);
+  ok(sl.conflicts.length >= 4, `«выражение в лоб»: конфликты на каждый знак операции (${sl.conflicts.length}) — приоритет не определён`);
+}
+{
+  const m = GRAMMAR_PRESETS.find((p) => p.id === 'mini');
+  const a = analyzeGrammar(parseGrammar(m.grammar));
+  const y = exportY(a.core, a.start, { conflicts: 1 });
+  ok(y.includes('%%') && y.includes('%expect 1'), 'экспорт .y: секции правил и %expect с числом конфликтов из лаборатории');
+  ok(y.includes('vyrazhenie') && !y.includes('выражение'), 'экспорт .y: кириллические имена транслитерированы (bison их не примет)');
+  ok(y.includes('левая рекурсия пишется напрямую'), 'экспорт .y: напоминание о главном отличии от занятия 2 на месте');
+  const rulesSection = y.split('%%')[1];
+  const bare = rulesSection
+    .split('\n')
+    .map((l) => l.replace(/\/\*[\s\S]*?\*\//g, '').replace(/"[^"]*"/g, '')) // строки и комментарии — не в счёт
+    .join('\n');
+  ok(!/[*+?[\]()]/.test(bare), 'экспорт .y: в секции правил нет EBNF-модификаторов и скобок — только обычный BNF');
+}
+{
+  const f = GRAMMAR_PRESETS.find((p) => p.id === 'dangling_fixed');
+  const af = analyzeGrammar(parseGrammar(f.grammar));
+  const yf = exportY(af.core, af.start, { conflicts: 0 });
+  ok(yf.includes('soglasovannyy') && yf.includes('nesoglasovannyy'), 'экспорт .y: переписанная грамматика экспортируется (транслитерация составных имён)');
+  ok(!yf.includes('%expect'), 'экспорт .y: без конфликтов %expect не добавляется');
 }
 
 console.log(`\nВсего проверок: ${passed} — все пройдены.`);

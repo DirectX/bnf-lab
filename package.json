@@ -8,9 +8,11 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "node scripts/smoke.mjs"
+    "test": "node scripts/smoke.mjs",
+    "crosscheck": "node scripts/crosscheck.mjs"
   },
   "devDependencies": {
+    "jison": "^0.4.18",
     "vite": "^6.0.0"
   }
 }

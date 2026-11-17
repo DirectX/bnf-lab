@@ -26,7 +26,7 @@
       <nav class="tabs" aria-label="Занятия">
         <button class="tab active" data-tab="1"><b>1</b><span>Грамматика и лексер</span></button>
         <button class="tab" data-tab="2"><b>2</b><span>Парсер и AST</span></button>
-        <button class="tab soon" data-tab="3"><b>3</b><span>Bison и конфликты</span></button>
+        <button class="tab" data-tab="3"><b>3</b><span>Bison и конфликты</span></button>
       </nav>
       <button id="theme-toggle" class="theme-toggle" title="Светлая/тёмная тема">🌙</button>
     </header>
@@ -180,35 +180,111 @@
         </section>
       </section>
 
-      <!-- ================================================================ часть 3 (роадмап) -->
+      <!-- ================================================================ часть 3 -->
       <section id="view-3" class="view" hidden>
-        <div class="grid single">
-          <section class="card roadmap">
+        <div class="card lr-intro">
+          <div class="card-head">
+            <h2>Рукописный парсер против генератора. Конфликты и стоимость изменения</h2>
+            <span class="badge-part">снизу вверх · SLR(1)</span>
+          </div>
+          <p class="lead">
+            Конфликт — это не сообщение об ошибке в инструменте. Это сообщение о
+            <b>неоднозначности вашего языка</b>. Инструмент честно говорит: ваша грамматика допускает
+            два разбора, выберите. Здесь выбор делаете вы, глядя на состояние автомата.
+          </p>
+          <p class="hint">
+            Приложение строит LR-таблицы само — тот же алгоритм, что внутри bison, только видимый изнутри.
+            Перекрёстная проверка живым инструментом: <code>npx jison</code> или <code>bison -v</code> в классе.
+          </p>
+        </div>
+
+        <div class="grid lr-grid">
+          <section class="card">
             <div class="card-head">
-              <h2>Часть 3. Рукописный парсер против генератора. Конфликты и стоимость изменения</h2>
-              <span class="badge-soon">в планах</span>
+              <h2>Конфликты</h2>
+              <span class="count" id="lr-summary"></span>
             </div>
-            <p class="lead">
-              По методическим указаниям к занятию 3: основание для инженерного выбора —
-              не чужое мнение, а собственный замер. И конфликт сдвиг/свёртка перестаёт
-              быть словами с лекции.
+            <div id="lr-conflicts"></div>
+            <div class="panel">
+              <h3>Автомат состояний</h3>
+              <p class="hint">Состояние — набор пунктов <code>A → α · β</code>. Конфликт прячется там, где
+                на один lookahead приходятся и сдвиг, и свёртка.</p>
+              <div id="lr-states" class="lr-states"></div>
+            </div>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>Прогон программы снизу вверх</h2>
+              <label class="lr-policy">политика
+                <select id="lr-policy" title="Как разрешать конфликт сдвига/свёртки">
+                  <option value="shift">сдвиг — else к ближайшему if (как bison по умолчанию)</option>
+                  <option value="reduce">свёртка — попробуйте: видно, почему так конфликт не решают</option>
+                </select>
+              </label>
+            </div>
+            <div id="lr-run-status"></div>
+            <div class="panel">
+              <h3>Трасса ходов <span id="lr-steps" class="count"></span></h3>
+              <div id="lr-trace" class="lr-trace"></div>
+            </div>
+            <div class="panel">
+              <h3>Рукописный против генератора</h3>
+              <div id="lr-compare"></div>
+            </div>
+          </section>
+        </div>
+
+        <div class="grid lr-grid">
+          <section class="card">
+            <div class="card-head">
+              <h2>Экспорт в .y</h2>
+              <button id="y-copy" class="btn">⧉ Копировать</button>
+            </div>
+            <p class="hint">
+              Та же грамматика в синтаксисе bison: <b>левая рекурсия записывается напрямую</b> —
+              в отличие от рекурсивного спуска, где её пришлось превращать в цикл.
+              <code>%expect</code> — число конфликтов, которое приложение нашло само.
+              Сборка в классе: <code>bison -d mini.y</code>, yylex — от лексера занятия 1.
             </p>
-            <div class="features">
-              <div class="feature"><b>Экспорт в .y.</b> Грамматика из части 1 переносится
-                в файл bison — левая рекурсия записывается напрямую, без переписывания в цикл.</div>
-              <div class="feature"><b>Два исполнителя грамматики.</b> Быстрый — генератор LALR
-                на чистом JS (jison) прямо в браузере: конфликт сдвига/свёртки на висячем else
-                виден мгновенно и без сервера. Полный — настоящий bison на отдельном Node-бэкенде:
-                фронтенд остаётся статическим, <code>.y</code> компилируется там, где можно ставить
-                yacc-утилиты. Эталонные отчёты bison для готовых грамматик может генерировать
-                и сам GitHub Actions при сборке.</div>
-              <div class="feature"><b>Конфликт сдвиг/свёртка вживую.</b> Тот же «висячий else»,
-                который анализатор части 1 уже помечает, bison покажет как реальный конфликт — с разбором сообщения.</div>
-              <div class="feature"><b>Бланк замера.</b> Строк кода, время реализации, время внесения
-                изменения в язык, число затронутых мест — в рукописном и bison-вариантах.</div>
-              <div class="feature"><b>Вывод.</b> Малый и стабильный язык — рукописный спуск дешевле;
-                большой и меняющийся — генератор окупается.</div>
+            <pre id="y-out" class="pseudo yout"></pre>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>Бланк замера</h2>
+              <span class="count">блоки 4–5 занятия · цифры сохраняются в браузере</span>
             </div>
+            <p class="hint">
+              Задание: добавить в язык одну конструкцию — <b>в обоих вариантах</b>, засекая время.
+              Главная метрика — не объём, а <b>время внесения изменения</b>: языки меняются.
+              Рекомендуется остаток от деления — затрагивает приоритеты, самое чувствительное место.
+            </p>
+            <table class="measure">
+              <thead>
+                <tr><th>Что замеряем</th><th>рукописный спуск (часть 2)</th><th>генератор (эта вкладка)</th></tr>
+              </thead>
+              <tbody>
+                <tr><td>Строк кода грамматики/парсера</td>
+                  <td><input type="number" id="m-lines-hand" min="0" placeholder="0"></td>
+                  <td><input type="number" id="m-lines-gen" min="0" placeholder="0"></td></tr>
+                <tr><td>Время первичной реализации, мин</td>
+                  <td><input type="number" id="m-time-hand" min="0" placeholder="0"></td>
+                  <td><input type="number" id="m-time-gen" min="0" placeholder="0"></td></tr>
+                <tr><td><b>Время внесения изменения, мин</b></td>
+                  <td><input type="number" id="m-change-hand" min="0" placeholder="0"></td>
+                  <td><input type="number" id="m-change-gen" min="0" placeholder="0"></td></tr>
+                <tr><td>Мест, затронутых при изменении</td>
+                  <td><input type="number" id="m-spots-hand" min="0" placeholder="0"></td>
+                  <td><input type="number" id="m-spots-gen" min="0" placeholder="0"></td></tr>
+              </tbody>
+            </table>
+            <div id="m-verdict" class="verdict"></div>
+            <p class="hint muted small">
+              Ожидаемая формулировка по итогам обсуждения: малый и стабильный язык — рукописный спуск дешевле;
+              большой и меняющийся — генератор окупается; диагностика ошибок почти всегда лучше в рукописном варианте.
+              Разброс по группе поучителен сам: результат зависит от того, насколько аккуратно написан рукописный парсер.
+            </p>
           </section>
         </div>
       </section>
@@ -217,10 +293,10 @@
     <footer>
       <p>
         Учебный конвейер: текст → лексер → токены → парсер → AST → байты → эмулятор.
-        Сейчас работает первая ступень — лексер не знает про грамматику и проверяет только
-        форму лексем: «) ) + = while» для него корректный вход.
+        Три занятия темы 4 — три ступени: лексер (часть 1), рукописный спуск и генератор кода (часть 2),
+        тот же язык снизу вверх через LR-таблицы (часть 3).
       </p>
-      <p class="muted">Тема 4 · практическое занятие 1 · приоритет операций задаётся структурой правил, а не отдельным механизмом</p>
+      <p class="muted">Тема 4 · приоритет операций задаётся структурой правил, а не отдельным механизмом · конфликт — свойство языка, а не инструмента</p>
     </footer>
   </div>
   <script type="module" src="/src/main.js"></script>
