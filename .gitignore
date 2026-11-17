@@ -5,3 +5,5 @@ dist
 
 .npm-cache
 __pycache__/
+
+python-references/__pycache__/
