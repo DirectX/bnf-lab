@@ -27,11 +27,12 @@ function desugar(rules) {
     if (genCache.has(key)) return genCache.get(key);
     const base = ref.t === 'nt' ? ref.value : ref.value || 'ЛЕКСЕМА';
     const name = `${base}#${++counter}`;
-    genCache.set(key, name);
+    const refObj = { t: 'nt', value: name };
+    genCache.set(key, refObj); // именно объект: на этом же key бывает повторный запрос (оператор* в <программа> и <блок>)
     if (kind === 'q') addGen(name, [{ syms: [ref] }, { syms: [] }], line);
     if (kind === 's') addGen(name, [{ syms: [ref, { t: 'nt', value: name }] }, { syms: [] }], line);
     if (kind === 'p') addGen(name, [{ syms: [ref] }, { syms: [ref, { t: 'nt', value: name }] }], line);
-    return { t: 'nt', value: name };
+    return refObj;
   }
 
   function expandSyms(syms) {
@@ -276,6 +277,7 @@ export function analyzeGrammar(parsed) {
   return {
     diagnostics,
     start,
+    core, // раскрытая грамматика (модификаторы свёрнуты в правила) — по ней парсит rd.js
     info: {
       nonterminals: rules.length,
       keywords: [...keywords].sort(),

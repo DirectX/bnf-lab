@@ -25,7 +25,7 @@
       </div>
       <nav class="tabs" aria-label="Занятия">
         <button class="tab active" data-tab="1"><b>1</b><span>Грамматика и лексер</span></button>
-        <button class="tab soon" data-tab="2"><b>2</b><span>Парсер и AST</span></button>
+        <button class="tab" data-tab="2"><b>2</b><span>Парсер и AST</span></button>
         <button class="tab soon" data-tab="3"><b>3</b><span>Bison и конфликты</span></button>
       </nav>
       <button id="theme-toggle" class="theme-toggle" title="Светлая/тёмная тема">🌙</button>
@@ -99,35 +99,85 @@
         </div>
       </section>
 
-      <!-- ================================================================ часть 2 (роадмап) -->
+      <!-- ================================================================ часть 2 -->
       <section id="view-2" class="view" hidden>
-        <div class="grid single">
-          <section class="card roadmap">
+        <div class="grid parser-grid">
+          <section class="card">
             <div class="card-head">
-              <h2>Часть 2. Парсер методом рекурсивного спуска и генератор кода</h2>
-              <span class="badge-soon">в разработке</span>
+              <h2>Правило → функция</h2>
+              <span class="badge-part">рекурсивный спуск</span>
             </div>
-            <p class="lead">
-              По методическим указаниям к занятию 2: довести конвейер до конца —
-              программа на мини-языке компилируется и выполняется на собственном
-              эмуляторе студента. Здесь сходятся Тема 1 (машина), Тема 2 (декомпозиция) и Тема 4.
+            <p class="hint">
+              Соответствие механическое: каждому нетерминалу — своя функция.
+              <b>Левая рекурсия превращена в цикл</b>: записать её напрямую нельзя — функция
+              вызвала бы себя первой строкой; цикл даёт левую ассоциативность, которую требовала грамматика.
             </p>
-            <div class="features">
-              <div class="feature"><b>Правило → функция.</b> Соответствие механическое:
-                <code>&lt;выражение&gt; ::= &lt;слагаемое&gt; | &lt;выражение&gt; "+" &lt;слагаемое&gt;</code>
-                превращается в <code>разобрать_выражение()</code> почти построчно.</div>
-              <div class="feature"><b>Левая рекурсия → цикл.</b> Анализатор из части 1 уже подсвечивает
-                левую рекурсию — в парсере она станет циклом, дающим левую ассоциативность.</div>
-              <div class="feature"><b>Живой AST.</b> Дерево для <code>x = 2 + 3 * (4 - 1)</code>:
-                умножение глубже сложения, скобок в дереве нет — они уже сделали своё дело.</div>
-              <div class="feature"><b>Генератор кода.</b> Обход в постфиксном порядке →
-                <code>LDA / ADD / STA</code>; <code>PUSH/POP</code> для вложенных выражений;
-                адрес вперёд с обратной правкой для <code>if</code> и <code>while</code>.</div>
-              <div class="feature"><b>Таблица имён и запуск.</b> Переменные — в области данных,
-                не пересекающейся с кодом; мнемоники рядом с байтами; эталонные тесты — 5–6 штук одним запуском.</div>
+            <pre id="pseudocode" class="pseudo"></pre>
+          </section>
+
+          <section class="card">
+            <div class="card-head">
+              <h2>Разбор программы из части 1</h2>
+              <span class="count" id="parse-steps"></span>
             </div>
+            <div id="parse-status"></div>
+            <div id="token-strip" class="tstrip"></div>
+            <div class="parser-cols">
+              <div class="panel parser-col">
+                <h3>AST <span id="ast-count" class="count"></span></h3>
+                <div id="ast-tree" class="ast"></div>
+              </div>
+              <div class="panel parser-col">
+                <h3>Порядок применения правил</h3>
+                <div id="parse-trace" class="trace"></div>
+              </div>
+            </div>
+            <details class="roadmap-fold">
+              <summary>Границы генератора и что дальше по методичке</summary>
+              <div class="features">
+                <div class="feature"><b>Один аккумулятор во плоти:</b> вложенные выражения сохраняются
+                  <code>PUSH/POP</code>, константы едут в память — <code>ADD</code> принимает только адрес,
+                  умножение разворачивается циклом сложений, а <code>a &lt;= b</code> — перебором вниз,
+                  потому что у машины нет флага «меньше». Всё это видно в листинге под своими комментариями.</div>
+                <div class="feature"><b>Честные отказы:</b> деление и константы &gt; 255 генератор
+                  не компилирует — с внятным объяснением. Деление циклом вычитаний — самостоятельная работа.</div>
+                <div class="feature"><b>Дальше (занятие 3):</b> тот же язык через bison — экспорт в
+                  <code>.y</code>, конфликт сдвиг/свёртка на висячем else, замер стоимости изменения языка.</div>
+              </div>
+            </details>
           </section>
         </div>
+
+        <section class="card gen-card">
+          <div class="card-head">
+            <h2>Генератор кода → TinyCPU-8</h2>
+            <div class="gen-actions">
+              <button id="gen-run" class="btn primary" disabled>▶ Запустить</button>
+              <button id="gen-copy" class="btn" disabled>⧉ Копировать листинг</button>
+              <a class="btn" href="https://directx.github.io/tinycpu-web/" target="_blank" rel="noopener">Открыть tinycpu-web ↗</a>
+            </div>
+          </div>
+          <p class="hint">
+            <b>TinyCPU-8:</b> память 256 байт, аккумулятор A, стек сверху вниз от 0xFF. Команды:
+            <code>HLT LDA STA LDI ADD SUB JMP JZ PUSH POP CALL RET</code>; операнд — один байт-адрес.
+            Листинг ниже — исходник для ассемблера <a href="https://directx.github.io/tinycpu-web/" target="_blank" rel="noopener">tinycpu-web</a>:
+            метки, <code>DB</code>, комментарии — копируй целиком и запускай. «Запустить» — тот же чип, встроенный сюда (порт эталонного tinycpu.py).
+          </p>
+          <div id="gen-status"></div>
+          <div class="gen-cols">
+            <div class="panel gen-col">
+              <h3>Листинг <span id="gen-size" class="count"></span></h3>
+              <div id="gen-listing" class="listing-wrap"></div>
+            </div>
+            <div class="panel gen-col">
+              <h3>Ячейки данных</h3>
+              <div id="gen-data" class="gen-data-wrap"></div>
+              <h3>Выполнение на TinyCPU-8</h3>
+              <div id="gen-runout" class="muted small">Нажмите «Запустить» — программа выполнится на встроенном эмуляторе,
+                здесь же видно, какие значения легли в ячейки переменных. Тот же листинг исполняется один в один на tinycpu-web.</div>
+            </div>
+          </div>
+        </section>
       </section>
 
       <!-- ================================================================ часть 3 (роадмап) -->
@@ -144,10 +194,14 @@
               быть словами с лекции.
             </p>
             <div class="features">
-              <div class="feature"><b>Экспорт в .y.</b>Grammatика из части 1 перегенерируется
+              <div class="feature"><b>Экспорт в .y.</b> Грамматика из части 1 переносится
                 в файл bison — левая рекурсия записывается напрямую, без переписывания в цикл.</div>
-              <div class="feature"><b>Node-бэкенд.</b> Компиляция <code>.y</code> через bison —
-                на отдельном сервере: фронтенд остаётся статическим, yacc-утилиты живут там, где им место.</div>
+              <div class="feature"><b>Два исполнителя грамматики.</b> Быстрый — генератор LALR
+                на чистом JS (jison) прямо в браузере: конфликт сдвига/свёртки на висячем else
+                виден мгновенно и без сервера. Полный — настоящий bison на отдельном Node-бэкенде:
+                фронтенд остаётся статическим, <code>.y</code> компилируется там, где можно ставить
+                yacc-утилиты. Эталонные отчёты bison для готовых грамматик может генерировать
+                и сам GitHub Actions при сборке.</div>
               <div class="feature"><b>Конфликт сдвиг/свёртка вживую.</b> Тот же «висячий else»,
                 который анализатор части 1 уже помечает, bison покажет как реальный конфликт — с разбором сообщения.</div>
               <div class="feature"><b>Бланк замера.</b> Строк кода, время реализации, время внесения

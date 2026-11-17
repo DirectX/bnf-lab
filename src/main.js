@@ -4,6 +4,10 @@ import { debounce, escapeHtml, LABEL } from './util.js';
 import { parseGrammar } from './grammar/parser.js';
 import { analyzeGrammar } from './grammar/analyze.js';
 import { lex } from './lexer/lexer.js';
+import { rdParse, walkRules, deepestAt } from './parser/rd.js';
+import { pseudocode } from './parser/pseudocode.js';
+import { generate } from './cpu8/codegen.js';
+import { runCPU8 } from './cpu8/cpu8.js';
 import { createEditor } from './ui/editor.js';
 import { highlightBnf, highlightProgram } from './ui/highlighters.js';
 import { GRAMMAR_PRESETS, PROGRAM_CHIPS } from './data/presets.js';
@@ -32,6 +36,10 @@ const save = debounce(() => {
 
 let lastAnalysis = null;
 let lastLexed = { tokens: [], errors: [], skipped: [] };
+let lastParsedSrc = null; // AST исходной БНФ — для псевдокода
+let curAst = null;
+let curTokens = [];
+let parseSel = null; // [start, end) — выбранный диапазон лексем
 
 // ---------------------------------------------------------------- редакторы
 
@@ -53,6 +61,7 @@ const scheduleUpdate = debounce(update, 120);
 
 function update() {
   const parsed = parseGrammar(state.grammar);
+  lastParsedSrc = parsed;
   lastAnalysis = analyzeGrammar(parsed);
   const info = lastAnalysis.info;
 
@@ -67,6 +76,8 @@ function update() {
   renderStats(info);
   renderDiagnostics(lastAnalysis.diagnostics);
   renderTokens(info);
+  renderPseudocode();
+  renderParseTab();
 }
 
 // ---------------------------------------------------------------- отрисовка
@@ -153,6 +164,233 @@ function renderTokens(info) {
     </tr>`).join('');
 }
 
+// ---------------------------------------------------------------- часть 2: парсер и AST
+
+const TK_CLS = { num: 'num', ident: 'ident', kw: 'kw', op: 'op', err: 'err' };
+
+function renderPseudocode() {
+  const el = $('#pseudocode');
+  const blocks = lastParsedSrc ? pseudocode(lastParsedSrc.rules) : [];
+  if (!blocks.length) {
+    el.innerHTML = '<span class="muted">правил нет — псевдокод появится вместе с грамматикой</span>';
+    return;
+  }
+  el.innerHTML = blocks.map((b) => {
+    const nl = b.text.indexOf('\n');
+    const head = escapeHtml(nl === -1 ? b.text : b.text.slice(0, nl));
+    const body = nl === -1 ? '' : `<div>${escapeHtml(b.text.slice(nl + 1))}</div>`;
+    const callout = b.rec
+      ? '<div class="pcallout"># левая рекурсия правила стала циклом «пока…» — так же, как на доске в блоке 1</div>'
+      : '';
+    return `<div class="prule${b.rec ? ' rec' : ''}"><div class="pname">${head}</div>${body}${callout}</div>`;
+  }).join('');
+}
+
+function renderParseTab() {
+  const statusEl = $('#parse-status');
+  parseSel = null;
+  curAst = null;
+  curTokens = lastLexed.tokens;
+
+  if (!lastAnalysis.start) {
+    statusEl.innerHTML = '<div class="diag sev-info"><span class="sev">i</span><span class="msg">Начните с грамматики в части 1 — парсер строится прямо по ней.</span></div>';
+    $('#token-strip').innerHTML = '';
+    $('#ast-tree').innerHTML = '';
+    $('#ast-count').textContent = '';
+    $('#parse-trace').innerHTML = '';
+    $('#parse-steps').textContent = '';
+    renderGenerator();
+    return;
+  }
+
+  const { ast, error, trace, steps } = rdParse(curTokens, lastAnalysis.core, lastAnalysis.start);
+  $('#parse-steps').textContent = `вызовов функций: ${steps.toLocaleString('ru-RU')}`;
+
+  const ambig = lastAnalysis.diagnostics.some((d) =>
+    /неоднознач|двусмыслен|двояко|два дерева|висяч/.test(d.message));
+
+  let statusHtml = '';
+  if (lastLexed.errors.length)
+    statusHtml += `<div class="warn-box">⚠ лексер: ошибок ${lastLexed.errors.length} — помеченные красным лексемы не могут попасть ни в одно правило</div>`;
+  if (ambig)
+    statusHtml += '<div class="warn-box">⚠ грамматика неоднозначна — показан <b>один из возможных</b> разборов. Рукописный парсер решает неоднозначность молча: это его удобство и его опасность</div>';
+  if (error)
+    statusHtml += `<div class="err-box"><b>✕ ошибка разбора</b> — ${escapeHtml(error.message)}</div>`;
+  else if (ast) {
+    let n = 0;
+    walkRules(ast, () => n++);
+    statusHtml = `<div class="ok-box">✓ программа разобрана: ${n} ${plural(n, 'применение правила', 'применения правила', 'применений правила')} — дерево и порядок ниже</div>`;
+  }
+  statusEl.innerHTML = statusHtml;
+  curAst = ast;
+
+  renderStrip();
+  renderTree(ast);
+  renderTrace(trace);
+  renderGenerator();
+}
+
+// ---------------------------------------------------------------- часть 2: генератор → TinyCPU-8
+
+let genState = null; // {gen, run?}
+
+function renderGenerator() {
+  genState = null;
+  const status = $('#gen-status');
+  const runBtn = $('#gen-run');
+  const copyBtn = $('#gen-copy');
+  runBtn.disabled = true;
+  copyBtn.disabled = true;
+  $('#gen-listing').innerHTML = '';
+  $('#gen-data').innerHTML = '';
+  $('#gen-size').textContent = '';
+  $('#gen-runout').innerHTML = '<span class="muted small">Нажмите «Запустить» — программа выполнится на встроенном эмуляторе.</span>';
+
+  if (!curAst) {
+    status.innerHTML = '<div class="muted small">Генератор подождёт успешного разбора: сначала парсер должен построить AST.</div>';
+    return;
+  }
+  let gen;
+  try {
+    gen = generate(curAst);
+  } catch (e) {
+    status.innerHTML = `<div class="err-box"><b>✕ генератор отказался</b> — ${escapeHtml(e.message)}</div>`;
+    return;
+  }
+  genState = { gen, run: null };
+  runBtn.disabled = false;
+  copyBtn.disabled = false;
+  status.innerHTML = `<div class="ok-box">✓ Скомпилировано: код ${gen.codeLen} байт + данных ${gen.dataRows.length}. Стек — сверху вниз, пересечений нет.</div>`
+    + gen.warnings.map((w) => `<div class="warn-box">⚠ ${escapeHtml(w)}</div>`).join('');
+  $('#gen-size').textContent = `— ${gen.bytes.length} байт в память с 0x00`;
+  const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, '0');
+  $('#gen-listing').innerHTML = `<table class="listing"><tbody>${gen.codeRows.map((r) => r.labelName
+    ? `<tr class="lab"><td class="t-pos">${hex2(r.addr)}</td><td></td><td class="asm-lab">${escapeHtml(r.labelName)}:</td><td></td></tr>`
+    : `<tr><td class="t-pos">${hex2(r.addr)}</td><td class="asm-hex">${r.hex}</td><td class="asm-text">${escapeHtml(r.text)}</td><td class="asm-c">${escapeHtml(r.comment)}</td></tr>`).join('')}</tbody></table>`;
+  renderGenData(null);
+}
+
+function renderGenData(res) {
+  const gen = genState.gen;
+  const hex2 = (n) => n.toString(16).toUpperCase().padStart(2, '0');
+  const rows = gen.dataRows.map((r) => {
+    const after = res ? res.memory[r.addr] : null;
+    const diff = res && after !== r.value;
+    return `<tr class="${diff ? 'changed' : ''}"><td class="t-pos">${hex2(r.addr)}</td><td class="mono">${escapeHtml(r.label)}</td><td>${r.value}</td><td>${res ? `<b>${after}</b>` : ''}</td><td class="asm-c">${escapeHtml(r.comment)}</td></tr>`;
+  }).join('');
+  $('#gen-data').innerHTML = `<table class="listing"><thead><tr><th>адр</th><th>метка</th><th>при старте</th><th>после</th><th>что это</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  const out = $('#gen-runout');
+  if (!res) {
+    out.innerHTML = '<span class="muted small">Нажмите «Запустить» — программа выполнится на встроенном эмуляторе, здесь же видно, какие значения легли в ячейки переменных.</span>';
+    return;
+  }
+  if (res.error) {
+    out.innerHTML = `<div class="err-box"><b>✕ эмулятор</b> — ${escapeHtml(res.error.message)}</div>`;
+    return;
+  }
+  const vars = gen.dataRows.filter((r) => r.varName);
+  out.innerHTML = `<div class="ok-box">✓ halted за ${res.steps} ${plural(res.steps, 'шаг', 'шага', 'шагов')} · A=${res.a} · PC=${res.pc} · SP=${res.sp}</div>`
+    + (vars.length
+      ? `<div class="vars-out">${vars.map((r) => `<span class="chip c-start"><span class="k">${escapeHtml(r.varName)}</span> ${res.memory[r.addr]}</span>`).join('')}</div>`
+      : '<div class="muted small">переменных в программе нет</div>');
+}
+
+$('#gen-run').addEventListener('click', () => {
+  if (!genState) return;
+  const res = runCPU8(genState.gen.bytes, { maxSteps: 500000 });
+  genState.run = res;
+  renderGenData(res);
+});
+
+$('#gen-copy').addEventListener('click', async (e) => {
+  if (!genState) return;
+  const btn = e.currentTarget;
+  try {
+    await navigator.clipboard.writeText(genState.gen.listing);
+    const old = btn.textContent;
+    btn.textContent = '✓ Скопировано — вставляйте в tinycpu-web';
+    setTimeout(() => { btn.textContent = old; }, 1800);
+  } catch {
+    prompt('Скопируйте листинг вручную:', genState.gen.listing);
+  }
+});
+
+function plural(n, one, few, many) {
+  const m10 = n % 10, m100 = n % 100;
+  if (m10 === 1 && m100 !== 11) return one;
+  if (m10 >= 2 && m10 <= 4 && (m100 < 12 || m100 > 14)) return few;
+  return many;
+}
+
+function setSel(s, e) {
+  parseSel = (s == null) ? null : [s, e];
+  renderStrip();
+  renderTree(curAst);
+}
+
+function renderStrip() {
+  const sel = parseSel;
+  $('#token-strip').innerHTML = curTokens.map((t, i) =>
+    `<span class="tk${sel && sel[0] <= i && i < sel[1] ? ' sel' : ''}" data-i="${i}" title="строка ${t.line}, столбец ${t.col}"><i>${i + 1}</i><span class="${TK_CLS[t.kind] || 'op'}">${escapeHtml(t.text)}</span></span>`).join('');
+  $('#token-strip').querySelectorAll('.tk').forEach((el) => el.addEventListener('click', () => {
+    if (!curAst) return;
+    const node = deepestAt(curAst, Number(el.dataset.i));
+    if (node) setSel(node.start, node.end);
+  }));
+}
+
+function renderTree(ast) {
+  const el = $('#ast-tree');
+  if (!ast) {
+    el.innerHTML = '<div class="muted">дерева нет — парсер не смог разобрать текущую программу (см. статус выше)</div>';
+    $('#ast-count').textContent = '';
+    return;
+  }
+  let count = 0, maxDepth = 0;
+  walkRules(ast, (n, d) => { count++; maxDepth = Math.max(maxDepth, d); });
+  $('#ast-count').textContent = `— ${count} узлов, глубина ${maxDepth + 1}`;
+  el.innerHTML = treeHtml(ast, 0);
+  el.querySelectorAll('.trow').forEach((row) => {
+    row.addEventListener('click', (e) => {
+      if (e.target.classList.contains('caret')) return;
+      setSel(Number(row.dataset.s), Number(row.dataset.e));
+    });
+  });
+  el.querySelectorAll('.caret').forEach((c) => c.addEventListener('click', (e) => {
+    e.stopPropagation();
+    c.closest('.tnode').querySelector(':scope > .tkids').classList.toggle('collapsed');
+    c.textContent = c.textContent === '▸' ? '▾' : '▸';
+  }));
+}
+
+function treeHtml(node, depth) {
+  if (node.type === 'tok') {
+    const i = node.start;
+    const sel = parseSel && parseSel[0] === i && i < parseSel[1] ? ' sel' : '';
+    return `<span class="tleaf tk-${TK_CLS[node.tok.kind] || 'op'}${sel}" title="лексема ${i + 1}">${escapeHtml(node.tok.text)}</span>`;
+  }
+  const sel = parseSel && parseSel[0] === node.start && node.end === parseSel[1] ? ' sel' : '';
+  const range = node.end > node.start ? `лексемы ${node.start + 1}–${node.end}` : 'ε';
+  const kids = node.children.map((c) => treeHtml(c, depth + 1)).join('');
+  // крупные поддеревья сворачиваем, чтобы дерево читалось
+  const collapsed = depth >= 1 && node.end - node.start > 18;
+  return `<div class="tnode">
+    <div class="trow${sel}" data-s="${node.start}" data-e="${node.end}" title="правило <${escapeHtml(node.name)}>, ${range}">
+      <span class="caret">${collapsed ? '▸' : '▾'}</span><span class="tnt">&lt;${escapeHtml(node.name)}&gt;</span><span class="tnum">${range}</span>
+    </div>
+    <div class="tkids${collapsed ? ' collapsed' : ''}">${kids}</div>
+  </div>`;
+}
+
+function renderTrace(trace) {
+  const shown = trace.slice(0, 1200);
+  $('#parse-trace').innerHTML = shown.map((t) =>
+    `<div class="tr" style="--d:${t.d}"><span class="tn">разобрать_${escapeHtml(t.name)}</span><span class="tp">${t.to > t.from ? `${t.from + 1}–${t.to}` : 'ε'}</span></div>`).join('')
+    + (trace.length > 1200 ? '<div class="muted">… трасса обрезана</div>' : '')
+    || '<div class="muted">трасса появится после успешного разбора</div>';
+}
+
 // ---------------------------------------------------------------- пресеты, чипы
 
 const presetSelect = $('#preset-select');
@@ -204,10 +442,16 @@ function showTab(n) {
   document.querySelectorAll('.view').forEach((v) => { v.hidden = true; });
   $(`#view-${n}`).hidden = false;
   $('#pipeline').style.display = n === 1 ? '' : 'none';
+  const h = `#tab${n}`;
+  if (location.hash !== h) history.replaceState(null, '', h);
   save();
 }
 document.querySelectorAll('.tab').forEach((b) =>
   b.addEventListener('click', () => showTab(Number(b.dataset.tab))));
+window.addEventListener('hashchange', () => {
+  const m = location.hash.match(/^#tab([123])$/);
+  if (m && Number(m[1]) !== state.tab) showTab(Number(m[1]));
+});
 
 const themeBtn = $('#theme-toggle');
 function applyTheme() {
@@ -223,6 +467,7 @@ themeBtn.addEventListener('click', () => {
 // ---------------------------------------------------------------- старт
 
 applyTheme();
-showTab(state.tab === 2 || state.tab === 3 ? state.tab : 1);
+const m0 = location.hash.match(/^#tab([123])$/);
+showTab(m0 ? Number(m0[1]) : (state.tab === 2 || state.tab === 3 ? state.tab : 1));
 markPresetCustom();
 update();

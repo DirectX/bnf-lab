@@ -4,3 +4,4 @@ dist
 *.local
 
 .npm-cache
+__pycache__/
