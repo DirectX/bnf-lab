@@ -186,7 +186,7 @@ html[data-theme='dark'] .g-eps { color: #f9a8d4; }
 .tok-err { color: var(--err); font-weight: 700; text-decoration: underline wavy var(--err) 1.5px; text-underline-offset: 3px; }
 
 /* ============================ чипы, панели ============================ */
-.chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+.chips-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; margin-bottom: 10px; }
 .chips-row.tight { margin-top: 0; }
 .chip {
   display: inline-flex; align-items: center; gap: 5px;
