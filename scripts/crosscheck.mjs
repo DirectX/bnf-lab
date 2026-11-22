@@ -74,13 +74,18 @@ for (const preset of GRAMMAR_PRESETS) {
   if (bisonAvailable) {
     const yPath = path.join(tmp, `${preset.id}.y`);
     fs.writeFileSync(yPath, exportY(a.core, a.start, { conflicts: mine }));
-    const out = withCapturedStdout(() => spawnSync('bison', ['-d', yPath, '-o', path.join(tmp, `${preset.id}.tab.c`)], { encoding: 'utf8' }));
+    const out = withCapturedStdout(() => spawnSync('bison', ['-Wall', '-d', yPath, '-o', path.join(tmp, `${preset.id}.tab.c`)], { encoding: 'utf8' }));
     const report = fs.readFileSync(path.join(tmp, `${preset.id}.output`), 'utf8');
     const bisonTotal = [...report.matchAll(/conflicts?: (\d+) (shift\/reduce|reduce\/reduce)/g)].reduce((s, m) => s + Number(m[1]), 0);
-    const expectWarn = /dangling|unused|warning/.test(out) && !/%expect/.test(out) ? '' : '';
     row.push(`bison: ${String(bisonTotal).padStart(2)} ${bisonTotal === mine ? '✓ точно' : '≈'}`);
     if (bisonTotal === mine) exact++;
     if (out.trim()) row.push(`(bison stderr: ${out.trim().split('\n')[0].slice(0, 80)})`);
+
+    // регрессия из жизни: экспортированный .y обязан собираться gcc -Wall -Wextra.
+    // Без %code provides gcc≥15 (C23) падает на неявных объявлениях yylex/yyerror.
+    const cc = spawnSync('gcc', ['-Wall', '-Wextra', '-fsyntax-only', path.join(tmp, `${preset.id}.tab.c`)], { encoding: 'utf8' });
+    row.push(cc.status === 0 ? 'gcc: ✓' : `gcc: ✕ ${cc.stderr.trim().split('\n')[0].slice(0, 60)}`);
+    if (cc.status !== 0) exact = -1e9; // провал сборки перекрывает счёт конфликтов
   }
 
   try {
