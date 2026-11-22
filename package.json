@@ -10,7 +10,7 @@
     "preview": "vite preview",
     "test": "node scripts/smoke.mjs",
     "gen-etalon": "node scripts/gen-etalon.mjs",
-    "pytest": "python3 python-references/zanyatie1_lexer.py && python3 python-references/zanyatie2_parser_codegen.py && python3 python-references/zanyatie2_etalonnye_testy.py",
+    "pytest": "python3 python-references/zanyatie1_lexer.py && python3 python-references/zanyatie2_parser_codegen.py && python3 python-references/zanyatie2_etalonnye_testy.py && echo 'x = 2 + 3 * (4 - 1);' | python3 python-references/mini_compile.py --run -",
     "crosscheck": "node scripts/crosscheck.mjs"
   },
   "devDependencies": {
