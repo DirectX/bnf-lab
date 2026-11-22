@@ -374,7 +374,8 @@ tr.changed td { background: var(--accent-soft); }
 /* ============================ часть 3: снизу вверх ============================ */
 #pipeline .step.active + i + .step.active { margin-left: -2px; }
 .lr-intro { margin-bottom: 16px; }
-.lr-grid { margin-top: 0; }
+.lr-grid { margin-top: 0; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1080px) { .lr-grid { grid-template-columns: 1fr; } }
 .badge-part {
   font-size: 11.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
   color: var(--info); background: var(--info-bg); border-radius: 999px; padding: 4px 11px; white-space: nowrap;
@@ -420,7 +421,7 @@ table.compare th, table.compare td { border: 1px solid var(--line-soft); padding
 table.compare th { background: var(--panel-2); font-weight: 600; }
 table.compare td:first-child { color: var(--muted); white-space: nowrap; }
 
-.yout { max-height: 420px; overflow: auto; }
+.yout { max-height: 420px; overflow: auto; min-width: 0; max-width: 100%; }
 .yout code { white-space: pre; font-size: 12px; }
 
 table.measure { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }

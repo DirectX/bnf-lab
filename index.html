@@ -245,7 +245,8 @@
               Та же грамматика в синтаксисе bison: <b>левая рекурсия записывается напрямую</b> —
               в отличие от рекурсивного спуска, где её пришлось превращать в цикл.
               <code>%expect</code> — число конфликтов, которое приложение нашло само.
-              Сборка в классе: <code>bison -d mini.y</code>, yylex — от лексера занятия 1.
+              Сборка в классе: <code>bison -d mini-lang.y &amp;&amp; gcc -Wall -o mini-lang mini-lang.tab.c</code> —
+              лексер занятия 1 уже встроен в каркас, программа читается со stdin: <code>echo 'x = 7;' | ./mini-lang</code>.
             </p>
             <pre id="y-out" class="pseudo yout"></pre>
           </section>
