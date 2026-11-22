@@ -92,8 +92,12 @@ export function exportY(core, start, { conflicts = 0 } = {}) {
   lines.push('');
   // Прототипы обязательны ДО yyparse: bison их не объявляет, а gcc ≥15 (C23)
   // считает неявное объявление ошибкой, не предупреждением.
-  lines.push('%code requires { #include <stdio.h> }');
-  lines.push('%code provides { int yylex(void); void yyerror(const char *s); extern int yylineno; }');
+  lines.push('%code requires { #include <stdio.h>\n#include <stdlib.h> }');
+  lines.push('%code provides { int yylex(void); void yyerror(const char *s); extern int yylineno;');
+  lines.push('#ifndef MINI_LEXER_PROVIDED');
+  lines.push('extern int yylex_tokens;   /* сколько лексем съел каркасный лексер */');
+  lines.push('#endif');
+  lines.push('}');
   lines.push('');
 
   // Bison 3.8 не позволяет объявлять ГОЛЫЕ строковые литералы в %token —
@@ -115,8 +119,21 @@ export function exportY(core, start, { conflicts = 0 } = {}) {
   }
   lines.push('%%');
   lines.push('/* каркас: yyerror — печать с позицией (сюжет занятия 1: позиция окупается) */');
-  lines.push('int main(void) { return yyparse(); }');
+  lines.push('int main(void) {');
+  lines.push('  if (getenv("YYDEBUG")) yydebug = 1;   /* YYDEBUG=1 ./mini-lang — трасса состояний, */');
+  lines.push('  int r = yyparse();                    /* как в отчёте mini-lang.output             */');
+  lines.push('  if (r == 0) {');
+  lines.push('#ifdef MINI_LEXER_PROVIDED');
+  lines.push('    printf("принято: программа разобрана\\n");');
+  lines.push('#else');
+  lines.push('    printf("принято: программа разобрана, %d лексем\\n", yylex_tokens);');
+  lines.push('#endif');
+  lines.push('  }');
+  lines.push('  return r;');
+  lines.push('}');
+  lines.push('#ifndef MINI_LEXER_PROVIDED');
   lines.push('void yyerror(const char *s) { fprintf(stderr, "строка %d: %s\\n", yylineno, s); }');
+  lines.push('#endif');
   lines.push('');
   // Лексер, встроенный в пример: методичка занятия 3 прямо разрешает это
   // («стыковка с существующим лексером — если возникнут трудности, разрешить
@@ -158,7 +175,8 @@ function lexerC(classes, keywords, puncts) {
   L.push('  while ((c = getchar()) != EOF && isspace((unsigned char)c)) { if (c == \'\\n\') yylineno++; }');
   L.push('  return c;');
   L.push('}');
-  L.push('int yylex(void) {');
+  L.push('int yylex_tokens = 0;   /* сколько лексем съел лексер — для отклика main */');
+  L.push('static int lexer_next(void) {');
   L.push('  int c = skip_ws();');
   L.push('  if (c == EOF) return 0;   /* YYEOF */');
   if (has(classes, 'ЧИСЛО')) {
@@ -203,6 +221,11 @@ function lexerC(classes, keywords, puncts) {
   }
   L.push('  fprintf(stderr, "строка %d: неизвестный символ «%c» — лексер не знает про грамматику, но знает словарь\\n", yylineno, c);');
   L.push('  return 0;   /* стоп: разбор закончится ошибкой синтаксиса */');
+  L.push('}');
+  L.push('int yylex(void) {');
+  L.push('  int t = lexer_next();');
+  L.push('  if (t != 0) yylex_tokens++;');
+  L.push('  return t;');
   L.push('}');
   return L.join('\n');
 }
